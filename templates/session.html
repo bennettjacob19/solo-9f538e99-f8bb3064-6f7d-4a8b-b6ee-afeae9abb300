@@ -16,6 +16,7 @@
       {% else %}未协商 Window Scale（按 0 处理）{% endif %}</dd></div>
     <div><dt>捕获时间范围 (UTC)</dt><dd class="mono">{{ s.first_ts|fmt_ts }}<br>~ {{ s.last_ts|fmt_ts }}</dd></div>
     <div><dt>连接帧数 / 诊断版本</dt><dd>{{ s.conn_frames }} / v{{ s.current_version }}</dd></div>
+    <div><dt>上传方向分片</dt><dd>{{ n_fragments }} 片 / {{ n_frag_groups }} 组（含未凑齐）</dd></div>
     <div><dt>唯一数据字节（重传只计一次）</dt><dd>{{ "{:,}".format(s.total_data_bytes) }} B</dd></div>
     <div><dt>峰值在途字节 / 最小余量</dt><dd>{{ "{:,}".format(s.max_inflight) }} B / {{ "{:,}".format(s.min_margin) }} B</dd></div>
     <div><dt>窗口用尽：时段数 / 总时长</dt><dd>{{ s.exhausted_periods }} 段 / {{ s.exhausted_ns|fmt_dur }}</dd></div>
@@ -40,8 +41,16 @@
     <td class="mono">{{ p.end_ts|fmt_ts if p.end_ts is not none else '（持续至捕获结束）' }}</td>
     <td class="num">{{ (p.end_ts - p.start_ts)|fmt_dur if p.end_ts is not none else '—' }}</td>
     <td class="num">{{ "{:,}".format(p.min_margin) }}</td>
-    <td class="mono">#{{ p.start_frame }}{% if sf %} · {{ sf.direction }} {{ sf.flags|fmt_flags }}{% endif %}</td>
-    <td class="mono">{% if ef %}#{{ p.end_frame }} · {{ ef.direction }} {{ ef.flags|fmt_flags }}{% else %}—{% endif %}</td>
+    {% set sfrag = frags_map.get(p.start_frag_ref) %}
+    {% set efrag = frags_map.get(p.end_frag_ref) %}
+    <td class="mono">
+      {% if sfrag %}#{{ sfrag.id }} · 分片重组凑齐（IP ID {{ sfrag.ip_id }}，偏移 {{ sfrag.offset }}）
+      {% elif sf %}#{{ p.start_frame }} · {{ sf.direction }} {{ sf.flags|fmt_flags }}{% else %}—{% endif %}
+    </td>
+    <td class="mono">
+      {% if efrag %}#{{ efrag.id }} · 分片重组凑齐（IP ID {{ efrag.ip_id }}，偏移 {{ efrag.offset }}）
+      {% elif ef %}#{{ p.end_frame }} · {{ ef.direction }} {{ ef.flags|fmt_flags }}{% else %}—{% endif %}
+    </td>
   </tr>
   {% endfor %}
 </table>
@@ -85,14 +94,18 @@
     <input type="file" name="pcap" required>
     <button type="submit">补传并重算</button>
   </form>
-  <p class="muted">补入较早的帧后，受影响的后续诊断会自动纠正（基于已入库的帧重算，无需重读旧 PCAP）；
-  重算失败或补传被拒绝时，原诊断保持可查。</p>
+  <p class="muted">支持 IPv4 分片：只取上传方向的分片，按首片中完整 TCP 头确认归属；
+  非首片可先到、可分次上传。分片按原抓包时间在首次凑齐时计入一个 TCP 段，
+  若因此进入窗口用尽，分界帧指向使报文凑齐的那一片。</p>
+  <p class="muted">补入较早的帧或副本后，受影响的后续诊断会自动纠正（基于已入库的帧与分片重算，无需重读旧 PCAP）；
+  重算失败（含分片重叠/内容冲突）或补传被拒绝时，本次新增数据整体回滚，原诊断保持可查。</p>
 </div>
 
 <h2>上传记录</h2>
 <table>
   <tr><th>#</th><th>类型</th><th>文件名</th><th>时间 (UTC)</th><th class="num">文件帧数</th>
-      <th class="num">连接帧数</th><th class="num">新增</th><th class="num">去重</th><th>状态</th></tr>
+      <th class="num">连接帧数</th><th class="num">新增</th><th class="num">去重</th>
+      <th class="num">分片新增/去重</th><th>状态</th></tr>
   {% for u in uploads %}
   <tr>
     <td>{{ u.id }}</td>
@@ -103,6 +116,7 @@
     <td class="num">{{ u.frames_conn }}</td>
     <td class="num">{{ u.frames_added }}</td>
     <td class="num">{{ u.frames_dup }}</td>
+    <td class="num">{{ u.fragments_added }} / {{ u.fragments_dup }}</td>
     <td>{% if u.status == 'ok' %}<span class="ok">成功</span>{% elif u.status == 'rejected' %}<span class="bad">已拒绝</span>{% else %}<span class="bad">失败</span>{% endif %}
         {% if u.error %}<br><span class="muted">{{ u.error }}</span>{% endif %}</td>
   </tr>

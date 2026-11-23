@@ -29,6 +29,14 @@ def _rel(seq: int, isn: int) -> int:
     return (seq - isn) % MOD32
 
 
+def _opt(row, key):
+    """sqlite3.Row 没有 .get；缺列（旧库/普通帧 dict）时返回 None。"""
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return None
+
+
 class IntervalSet:
     """已发送字节区间并集（用于在途字节统计，重传只计一次）。"""
 
@@ -65,6 +73,10 @@ class IntervalSet:
 def analyze(frames):
     """frames: 按 (ts, id) 排序的 dict 序列，键含
     id, ts, direction('fwd'/'rev'), flags, seq, ack, wnd, payload_len, wscale_opt。
+
+    由 IPv4 分片重组出的段可额外带 frag_ref（使该段凑齐的分片 id）与
+    frag_key（分片组键）；此时事件/分界帧以 frag_ref 为准，页面上指向
+    实际使报文凑齐的那一帧。
 
     返回 {meta, events, periods, summary}；不满足条件时抛 AnalyzeError。
     """
@@ -151,6 +163,7 @@ def analyze(frames):
                     {
                         "ts": f["ts"],
                         "frame_id": f["id"],
+                        "frag_ref": _opt(f, "frag_ref"),
                         "cum_ack": cum_ack,
                         "data_end": data_end,
                         "right_edge": right_edge,
@@ -172,6 +185,7 @@ def analyze(frames):
                 cur = {
                     "start_ts": ev["ts"],
                     "start_frame": ev["frame_id"],
+                    "start_frag_ref": ev["frag_ref"],
                     "min_margin": ev["margin"],
                 }
             elif ev["margin"] < cur["min_margin"]:
@@ -180,11 +194,13 @@ def analyze(frames):
             if cur is not None:
                 cur["end_ts"] = ev["ts"]
                 cur["end_frame"] = ev["frame_id"]
+                cur["end_frag_ref"] = ev["frag_ref"]
                 periods.append(cur)
                 cur = None
     if cur is not None:  # 捕获结束时仍在用尽状态
         cur["end_ts"] = None
         cur["end_frame"] = None
+        cur["end_frag_ref"] = None
         periods.append(cur)
 
     first_ts = frames[0]["ts"]

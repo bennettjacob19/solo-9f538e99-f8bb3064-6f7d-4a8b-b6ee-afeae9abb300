@@ -7,7 +7,7 @@ WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py analysis.py db.py pcaputil.py ./
+COPY app.py analysis.py db.py pcaputil.py fragment.py ./
 COPY templates ./templates
 
 RUN mkdir -p /data && useradd -r -u 10001 app && chown -R app /data
