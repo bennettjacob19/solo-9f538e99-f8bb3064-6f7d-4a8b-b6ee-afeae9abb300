@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>新建诊断</h1>
+<div class="card">
+  <form method="post" action="{{ url_for('analyze_upload') }}" enctype="multipart/form-data">
+    <label>发送端抓包文件（经典 PCAP，以太网）</label>
+    <input type="file" name="pcap" accept=".pcap,.cap,.pcapng,application/octet-stream" required>
+    <div class="grid" style="margin-top:8px">
+      <div><label>客户端 IP（上传方）</label><input type="text" name="client_ip" placeholder="192.0.2.10" required></div>
+      <div><label>客户端端口</label><input type="text" name="client_port" placeholder="51000" required></div>
+      <div><label>服务器 IP</label><input type="text" name="server_ip" placeholder="198.51.100.20" required></div>
+      <div><label>服务器端口</label><input type="text" name="server_port" placeholder="443" required></div>
+    </div>
+    <p class="muted">仅分析含完整握手、单向传数据、序号跨度小于 2 GiB 的 IPv4 TCP 连接；
+    窗口按握手协商的 Window Scale 缩放，序号回绕自动处理。时间均为 UTC。</p>
+    <button type="submit">开始分析</button>
+  </form>
+</div>
+
+<h1>诊断会话</h1>
+{% if sessions %}
+<table>
+  <tr><th>#</th><th>创建时间 (UTC)</th><th>上传方向四元组</th><th>状态</th>
+      <th class="num">连接帧数</th><th class="num">窗口用尽时段</th><th class="num">用尽总时长</th><th></th></tr>
+  {% for s in sessions %}
+  <tr>
+    <td>{{ s.id }}</td>
+    <td class="mono">{{ s.created_at }}</td>
+    <td class="mono">{{ s.client_ip }}:{{ s.client_port }} → {{ s.server_ip }}:{{ s.server_port }}</td>
+    <td>{% if s.status == 'ok' %}<span class="ok">正常</span>{% else %}<span class="bad">失败</span>{% endif %}</td>
+    <td class="num">{{ s.conn_frames }}</td>
+    <td class="num">{{ s.exhausted_periods if s.exhausted_periods is not none else '—' }}</td>
+    <td class="num">{{ s.exhausted_ns|fmt_dur if s.exhausted_ns is not none else '—' }}</td>
+    <td><a href="{{ url_for('session', session_id=s.id) }}">查看</a></td>
+  </tr>
+  {% if s.status != 'ok' and s.error %}
+  <tr><td></td><td colspan="7" class="muted">失败原因：{{ s.error }}</td></tr>
+  {% endif %}
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">还没有诊断会话。</p>
+{% endif %}
+{% endblock %}

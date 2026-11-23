@@ -1,0 +1,13 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DB_PATH: /data/pcapdiag.db
+    volumes:
+      - pcapdiag-data:/data
+    restart: unless-stopped
+
+volumes:
+  pcapdiag-data:

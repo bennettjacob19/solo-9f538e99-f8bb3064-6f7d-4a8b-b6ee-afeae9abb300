@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}接收窗口排障{% endblock %}</title>
+<style>
+  :root { --bd:#d0d7de; --fg:#1f2328; --muted:#656d76; --bg:#f6f8fa; --accent:#0969da; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+         color: var(--fg); margin: 0; background: #fff; }
+  header { background: var(--bg); border-bottom: 1px solid var(--bd); padding: 12px 24px; }
+  header a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  main { max-width: 1080px; margin: 24px auto; padding: 0 24px; }
+  h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 32px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--bd); padding: 6px 10px; text-align: left; }
+  th { background: var(--bg); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .card { border: 1px solid var(--bd); border-radius: 6px; padding: 16px; margin: 16px 0; }
+  .flash-ok { background:#dafbe1; border:1px solid #2da44e; padding:10px 14px; border-radius:6px; margin:8px 0; }
+  .flash-error { background:#ffebe9; border:1px solid #cf222e; padding:10px 14px; border-radius:6px; margin:8px 0; }
+  label { display:block; margin:8px 0 2px; font-size:13px; color:var(--muted); }
+  input[type=text], input[type=number] { padding:6px 8px; border:1px solid var(--bd); border-radius:6px; width: 220px; }
+  input[type=file] { margin: 6px 0; }
+  button { background: var(--accent); color:#fff; border:0; border-radius:6px; padding:8px 16px; cursor:pointer; font-size:14px; }
+  button:hover { background:#0550ae; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 24px; }
+  .grid dt { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .grid dd { margin: 0; font-size: 14px; }
+  .bad { color:#cf222e; font-weight:600; }
+  .ok { color:#1a7f37; font-weight:600; }
+</style>
+</head>
+<body>
+<header><a href="{{ url_for('index') }}">接收窗口排障工具</a>
+  <span class="muted"> · 大文件上传卡顿诊断（发送端 PCAP）</span></header>
+<main>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for cat, msg in messages %}
+    <div class="flash-{{ cat }}">{{ msg }}</div>
+  {% endfor %}
+{% endwith %}
+{% block content %}{% endblock %}
+</main>
+</body>
+</html>

@@ -1,0 +1,112 @@
+{% extends "base.html" %}
+{% block title %}会话 #{{ s.id }} · 接收窗口排障{% endblock %}
+{% block content %}
+<h1>诊断会话 #{{ s.id }}
+  {% if s.status == 'ok' %}<span class="ok">●</span>{% else %}<span class="bad">● 失败</span>{% endif %}
+</h1>
+
+<div class="card">
+  <dl class="grid">
+    <div><dt>上传方向四元组</dt><dd class="mono">{{ s.client_ip }}:{{ s.client_port }} → {{ s.server_ip }}:{{ s.server_port }}</dd></div>
+    <div><dt>创建时间 (UTC)</dt><dd class="mono">{{ s.created_at }}</dd></div>
+    {% if s.status == 'ok' %}
+    <div><dt>客户端 ISN / 服务器 ISN</dt><dd class="mono">{{ s.client_isn }} / {{ s.server_isn }}</dd></div>
+    <div><dt>窗口缩放（握手协商）</dt><dd>
+      {% if s.scaling %}客户端 {{ s.client_wscale }}，服务器 {{ s.server_wscale }}（通告窗口 ×2<sup>{{ s.server_wscale }}</sup>）
+      {% else %}未协商 Window Scale（按 0 处理）{% endif %}</dd></div>
+    <div><dt>捕获时间范围 (UTC)</dt><dd class="mono">{{ s.first_ts|fmt_ts }}<br>~ {{ s.last_ts|fmt_ts }}</dd></div>
+    <div><dt>连接帧数 / 诊断版本</dt><dd>{{ s.conn_frames }} / v{{ s.current_version }}</dd></div>
+    <div><dt>唯一数据字节（重传只计一次）</dt><dd>{{ "{:,}".format(s.total_data_bytes) }} B</dd></div>
+    <div><dt>峰值在途字节 / 最小余量</dt><dd>{{ "{:,}".format(s.max_inflight) }} B / {{ "{:,}".format(s.min_margin) }} B</dd></div>
+    <div><dt>窗口用尽：时段数 / 总时长</dt><dd>{{ s.exhausted_periods }} 段 / {{ s.exhausted_ns|fmt_dur }}</dd></div>
+    {% else %}
+    <div><dt>失败原因</dt><dd class="bad">{{ s.error }}</dd></div>
+    {% endif %}
+  </dl>
+</div>
+
+{% if s.status == 'ok' %}
+<h2>窗口用尽时段（余量 ≤ 0）与分界帧</h2>
+{% if periods %}
+<table>
+  <tr><th>#</th><th>开始时刻 (UTC)</th><th>结束时刻 (UTC)</th><th class="num">持续时长</th>
+      <th class="num">最小余量 (B)</th><th>起始分界帧</th><th>结束分界帧</th></tr>
+  {% for p in periods %}
+  {% set sf = frames_map.get(p.start_frame) %}
+  {% set ef = frames_map.get(p.end_frame) %}
+  <tr>
+    <td>{{ loop.index }}</td>
+    <td class="mono">{{ p.start_ts|fmt_ts }}</td>
+    <td class="mono">{{ p.end_ts|fmt_ts if p.end_ts is not none else '（持续至捕获结束）' }}</td>
+    <td class="num">{{ (p.end_ts - p.start_ts)|fmt_dur if p.end_ts is not none else '—' }}</td>
+    <td class="num">{{ "{:,}".format(p.min_margin) }}</td>
+    <td class="mono">#{{ p.start_frame }}{% if sf %} · {{ sf.direction }} {{ sf.flags|fmt_flags }}{% endif %}</td>
+    <td class="mono">{% if ef %}#{{ p.end_frame }} · {{ ef.direction }} {{ ef.flags|fmt_flags }}{% else %}—{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="ok">捕获期间窗口始终有余量，未出现用尽。</p>
+{% endif %}
+
+<h2>按时刻查询</h2>
+<div class="card">
+  <form method="get" action="{{ url_for('session', session_id=s.id) }}">
+    <label>时刻（UTC，如 2026-11-22 10:15:30.123456789，或 epoch 秒）</label>
+    <input type="text" name="at" style="width:340px" value="{{ query.input if query else '' }}" required>
+    <button type="submit">查询</button>
+  </form>
+  {% if query and query.ts is not none %}
+    {% if query.event %}
+    <table>
+      <tr><th>时刻 (UTC)</th><th class="num">窗口余量 (B)</th><th class="num">已发未确认 (B)</th>
+          <th class="num">累计确认点 (rel)</th><th class="num">已发数据末端 (rel)</th>
+          <th class="num">通告窗口右沿 (rel)</th><th>状态</th></tr>
+      <tr>
+        <td class="mono">{{ query.ts|fmt_ts }}</td>
+        <td class="num">{{ "{:,}".format(query.event.margin) }}</td>
+        <td class="num">{{ "{:,}".format(query.event.inflight) }}</td>
+        <td class="num mono">{{ "{:,}".format(query.event.cum_ack) }}</td>
+        <td class="num mono">{{ "{:,}".format(query.event.data_end) }}</td>
+        <td class="num mono">{{ "{:,}".format(query.event.right_edge) }}</td>
+        <td>{% if query.event.margin <= 0 %}<span class="bad">窗口用尽</span>{% else %}<span class="ok">有余量</span>{% endif %}</td>
+      </tr>
+    </table>
+    {% else %}
+    <p class="muted">该时刻早于首个可用状态（握手尚未完成或捕获尚未开始）。</p>
+    {% endif %}
+  {% endif %}
+</div>
+
+<h2>补传抓包片段</h2>
+<div class="card">
+  <form method="post" action="{{ url_for('supplement', session_id=s.id) }}" enctype="multipart/form-data">
+    <label>同次抓包的片段（沿用原时间戳；同一连接同一时间戳的同一帧只计一次，若出现不同帧将拒绝整份补传）</label>
+    <input type="file" name="pcap" required>
+    <button type="submit">补传并重算</button>
+  </form>
+  <p class="muted">补入较早的帧后，受影响的后续诊断会自动纠正（基于已入库的帧重算，无需重读旧 PCAP）；
+  重算失败或补传被拒绝时，原诊断保持可查。</p>
+</div>
+
+<h2>上传记录</h2>
+<table>
+  <tr><th>#</th><th>类型</th><th>文件名</th><th>时间 (UTC)</th><th class="num">文件帧数</th>
+      <th class="num">连接帧数</th><th class="num">新增</th><th class="num">去重</th><th>状态</th></tr>
+  {% for u in uploads %}
+  <tr>
+    <td>{{ u.id }}</td>
+    <td>{{ '初始' if u.kind == 'initial' else '补传' }}</td>
+    <td class="mono">{{ u.filename }}</td>
+    <td class="mono">{{ u.uploaded_at }}</td>
+    <td class="num">{{ u.frames_total }}</td>
+    <td class="num">{{ u.frames_conn }}</td>
+    <td class="num">{{ u.frames_added }}</td>
+    <td class="num">{{ u.frames_dup }}</td>
+    <td>{% if u.status == 'ok' %}<span class="ok">成功</span>{% elif u.status == 'rejected' %}<span class="bad">已拒绝</span>{% else %}<span class="bad">失败</span>{% endif %}
+        {% if u.error %}<br><span class="muted">{{ u.error }}</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}
